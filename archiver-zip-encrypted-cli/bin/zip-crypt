@@ -1,0 +1,149 @@
+#!/usr/bin/env node
+
+require("colors");
+const commandLineArgs = require("command-line-args");
+const commandLineUsage = require("command-line-usage");
+const { CommandFactory } = require("../lib/command/command-factory.js");
+const pkg = require("../package.json");
+const log = require("loglevel");
+const logResult = require("loglevel").getLogger("result");
+
+log.setLevel("info");
+logResult.setLevel("info");
+process.title = "zip-crypt";
+
+const mainDefinitions = [
+	{
+		name: "target", alias: "t", type: String,
+		description: "The OM Package file.",
+		typeLabel: "{underline file}"
+	},
+	{
+		name: "password", alias: "p", type: String,
+		description: "The password to encrypt the package.",
+		typeLabel: "{underline password}"
+	},
+	{
+		name: "command", alias: "c", type: String, defaultOption: true, 
+		description: `The OM command to be executed. It can be one of the following values: 
+		 - {red encrypt}`,
+		typeLabel: "{underline command} ..."
+	},
+	{
+		name: "version", type: Boolean,
+		description: "Print zip-crypt version."
+	},
+	{
+		name: "help", alias: "h", type: Boolean,
+		description: "Print this help information."
+	}
+];
+
+let mainOptions;
+
+try {
+	mainOptions = commandLineArgs(mainDefinitions,{ stopAtFirstUnknown: true });
+} catch (e) {
+	log.info('error: ' + e);
+	printUsage(mainDefinitions);
+	process.exit(1);
+}
+
+if (mainOptions.version) {
+	printVersion();
+	process.exit(0);
+}
+
+if (mainOptions.help && !mainOptions.command) {
+	log.info("command missing for help");
+	printUsage(mainDefinitions);
+	process.exit(0);
+}
+
+if(!mainOptions.command) {
+	log.info("command missing");
+	printUsage(mainDefinitions);
+	process.exit(1);
+}
+
+if (!validateMainArgOptions(mainOptions)) {
+	log.info("bad arguements");
+	printUsage(mainDefinitions);
+	process.exit(1);
+}
+
+const argv = mainOptions._unknown || [];
+if (mainOptions.help) {
+	argv.push("-h");
+}
+
+const commandFactory = new CommandFactory(mainOptions.target, mainOptions.password);
+const command = commandFactory.getCommand(mainOptions.command);
+
+if(!command) {
+	log.info("command not found.")
+	printUsage(mainDefinitions);
+	process.exit(1);
+}
+
+if(!command.parseArguments(argv)) {
+	process.exit(1);
+}
+
+if (command.printHelp()) {
+	process.exit(0);
+}
+
+if (mainOptions.quiet) {
+	log.setLevel("error");
+} else if(mainOptions.verbose) {
+	log.setLevel("debug");
+}
+
+command.run()
+	.then(() => {
+		process.exit(0);
+	})
+	.catch(error => {
+		log.error(`[ERROR] zip-crypt failed to execute the command. ${error}`.red);
+		process.exit(1);
+	});
+
+function printVersion() {
+	log.info(pkg.version);
+}
+
+function printUsage(options) {
+	const sections = [
+		{
+			header: "zip-crypt",
+			content: `A tool for encrypting TRIRIGA Object Migration packages.
+			The following operations are available:
+			 - encrypt package`
+		},
+		{
+			header: "Synopsis",
+			content: [
+				"$ zip-crypt {bold -t} {underline file} {bold -p} {underline password} -c {red command}"
+			]
+		},
+		{
+			header: "Options",
+			optionList: options
+		},
+		{
+			header: "Command Help",
+			content: [
+				{
+					desc: "To read about a specific command, type:",
+					example: "$ zip-crypt command -h"
+				}
+			]
+		}
+	];
+	log.info(commandLineUsage(sections));
+};
+
+function validateMainArgOptions(mainOptions) {
+	return mainOptions.help || (mainOptions.target && mainOptions.password);
+}
